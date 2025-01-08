@@ -11,10 +11,7 @@ fi
 
 # Variables with proper quoting and SubHunterX format
 domain="$1"
-wordlist="${2:-"~/subhunterx/fuzz.txt"}"
-reso="${3:-"~/subhunterx/dnsresolvers.txt"}"
-nuclei_templates="${4:-"~/nuclei-templates"}"
-config_file="${5:-"~/subhunterx/config.ini"}"
+nuclei_templates="${4:-"$HOME/nuclei-templates"}"
 output_dir="/root/Desktop/${domain}"
 
 
@@ -39,63 +36,80 @@ mkdir -p "$output_dir" || { echo " ${REDCOLOR} Failed to create output directory
 tld=$(echo "$domain" | sed 's/^.*\(\.[a-zA-Z0-9]*\.[a-zA-Z]\{2,3\}\)$/\1/')
 
 
-echo -e "${REDCOLOR}[+] Enumerating subdomains...${RESETCOLOR}"
+echo -e "${REDCOLOR}[+] Enumeration of Subdomains with Multiple Tools...${RESETCOLOR}"
+
 # Amass - Active Mode
-echo -e "${BLUECOLOR}[+] Finding subdomains with Amass...${GREENCOLOR}"
-amass enum -active -d "$domain" -config "$AMASS_CONFIG" -o "$output_dir/amass.txt" 
-grep -oP '\b[A-Za-z0-9.-]+'"$tld"'\b' "$output_dir/amass.txt" > "$output_dir/amasssubdomains.txt"
+echo -e "${BLUECOLOR}[+] Running Amass...${GREENCOLOR}"
+amass enum -active -d "$domain" -config "$AMASS_CONFIG" -o "$output_dir/amass.txt" &
+
 
 # Subfinder
-echo -e "${BLUECOLOR}[+] Finding subdomains with Subfinder...${GREENCOLOR}"
-subfinder -d "$domain" -o "$output_dir/subfinder.txt" 
+echo -e "${BLUECOLOR}[+] Running Subfinder...${GREENCOLOR}"
+subfinder -d "$domain" -o "$output_dir/subfinder.txt" &
 
 # Findomain
-echo -e "${BLUECOLOR}[+] Finding subdomains with Findomain...${GREENCOLOR}"
-findomain -t "$domain" --quiet | tee -a "$output_dir/findomain.txt" 
+echo -e "${BLUECOLOR}[+] Running Findomain...${GREENCOLOR}"
+findomain -t shaadi.com --quiet >> "$output_dir/findomain.txt" &
 
 # Assetfinder
-echo -e "${BLUECOLOR}[+] Finding subdomains with Assetfinder...${GREENCOLOR}"
-assetfinder -subs-only "$domain" | tee -a "$output_dir/assetfinder.txt" 
+echo -e "${BLUECOLOR}[+] Running Assetfinder...${GREENCOLOR}"
+assetfinder -subs-only "$domain" | tee -a "$output_dir/assetfinder.txt" &
 
 # Sublist3r
-echo -e "${BLUECOLOR}[+] Finding subdomains with Sublist3r...${GREENCOLOR}"
-python3 -W ignore /usr/local/bin/sublist3r -d shaadi.com  -e baidu,yahoo,google,bing,ask,netcraft,dnsdumpster,threatcrowd,ssl,passivedns -o "$output_dir/sublist3r.txt"
+echo -e "${BLUECOLOR}[+] Running Sublist3r...${GREENCOLOR}"
+python3 -W ignore /usr/local/bin/sublist3r -d "$domain" -e baidu,yahoo,google,bing,ask,netcraft,dnsdumpster,threatcrowd,ssl,passivedns -o "$output_dir/sublist3r.txt" &
 
 # Chaos
-echo -e "${BLUECOLOR}[+] Finding subdomains with Chaos...${GREENCOLOR}"
-chaos -key "$CHAOS_API_KEY" -d "$domain" -o "$output_dir/chaos.txt" 
+echo -e "${BLUECOLOR}[+] Running Chaos...${GREENCOLOR}"
+chaos -key "$CHAOS_API_KEY" -d "$domain" -o "$output_dir/chaos.txt" &
 
 # CRTSH
-echo -e "${BLUECOLOR}[+] Finding subdomains with CRTSH...${GREENCOLOR}"
-crtsh -d "$domain" | tee -a "$output_dir/crtsh.txt" 
+echo -e "${BLUECOLOR}[+] Running CRTSH...${GREENCOLOR}"
+crtsh -d "$domain" >> "$output_dir/crtsh.txt" &
 
 # GitHub Subdomains
-echo -e "${BLUECOLOR}[+] Finding subdomains with GitHub...${GREENCOLOR}"
-github-subdomains -d "$domain" -t "$GITHUB_TOKEN" -o "$output_dir/github_subdomains.txt" 
+echo -e "${BLUECOLOR}[+] Running GitHub Subdomains...${GREENCOLOR}"
+github-subdomains -d "$domain" -t "$GITHUB_TOKEN" -o "$output_dir/github_subdomains.txt" &
 
 # Gobuster - Subdomain Brute-forcing
-echo -e "${BLUECOLOR}[+] Brute-forcing subdomains with Gobuster...${GREENCOLOR}"
-gobuster dns -d "$domain" -w "$WORDLIST" -o "$output_dir/gobuster.txt" 
+echo -e "${BLUECOLOR}[+] Running Gobuster...${GREENCOLOR}"
+
+gobuster dns -d "$domain" -w "$WORDLIST" -o "$output_dir/gobuster.txt" -t 100 --delay 500ms &
 
 # DNSRecon - Active Mode (Brute-forcing)
-echo -e "${BLUECOLOR}[+] Finding subdomains with DNSRecon...${GREENCOLOR}"
-dnsrecon -d "$domain" -t brt -w "$WORDLIST" -o "$output_dir/dnsrecon.txt"
+echo -e "${BLUECOLOR}[+] Running DNSRecon...${GREENCOLOR}"
+dnsrecon -d "$domain" -t brt -w "$WORDLIST" -o "$output_dir/dnsrecon.txt" &
+
+wait
+
 
 
 # Combine and sort subdomains, excluding one file
-echo -e "${REDCOLOR}[+] Merging and sorting subdomain files...${RESETCOLOR}"
-find "$output_dir" -type f -name "*.txt" ! -name "amass.txt" -exec cat {} + | sort -u > "$output_dir/all_subdomains.txt"
+echo -e "${REDCOLOR}[+] Merging and sorting subdomain files...$
+{RESETCOLOR}"
+grep -oP '\b[A-Za-z0-9.-]+'"$tld"'\b' "$output_dir/amass.txt" > "$output_dir/amasssubdomains.txt" 
 
+grep -oP '\b[a-z0-9.-]+\b' "$output_dir/gobuster.txt" | sort -u > "$output_dir/cleaned_gobuster_subdomains.txt"
 
+find "$output_dir" -type f -name "*.txt" ! -name "amass.txt gobuster.txt" -exec cat {} + | sort -u > "$output_dir/all_subdomains.txt"
+
+# Resolve Subdomains with Shuffledns
+echo -e "${YELLOWCOLOR}[+] Resolving subdomains with Shuffledns...${RESETCOLOR}"
+shuffledns -list "$output_dir/all_subdomains.txt" -r "$RESOLVERS" -o "$output_dir/resolved_subdomains.txt"
 
 # Checking live subdomains with httpx
 echo -e "${REDCOLOR}[+] Checking for live subdomains...${RESETCOLOR}"
-httpx -l "$output_dir/all_subdomains.txt" -o "$output_dir/live_subdomains.txt" -silent -threads 300 -mc 200,301,302,403,404,500,502,503
+httpx -l "$output_dir/resolved_subdomains.txt" -o "$output_dir/live_subdomains.txt" -silent -threads 300 -mc 200,301,302,403,404,500,502,503
 
 # Finding APIs from all subdomains 
 echo -e "$REDCOLOR [+] Finding APIs...${RESETCOLOR}"
 cat "$output_dir/live_subdomains.txt" | grep api | tee "$output_dir/api.txt"
 uniq "$output_dir/api.txt" > "$output_dir/finalapi.txt"
+
+# Discover endpoints with Katana
+echo -e "${REDCOLOR}[+] Crawling with Katana...${RESETCOLOR}"
+katana -list "$output_dir/live_subdomains.txt" -o "$output_dir/katana_output.txt" -d 3 --json
+grep -E "\.js|\.json|\.php|\.xml|\.txt|\.env|api" "$output_dir/katana_output.txt" > "$output_dir/katana_filtered.txt"
 
 #  GoSpider Web Crawling
 echo -e "${REDCOLOR}[+] Web Crawling Started..${RESETCOLOR}"
@@ -125,4 +139,5 @@ echo -e "${REDCOLOR}[+] Discovering parameters with Arjun...${RESETCOLOR}"
 arjun -i "$output_dir/filtered_links.txt" -o "$output_dir/params.txt"
 
 # 5. Merge go_extracted_files.txt and combined_bruteforce.txt
-cat "$output_dir/go_extracted_files.txt" "$output_dir/combined_bruteforce.txt" "$output_dir/filtered_links.txt" "$output_dir/params.txt" | sort -u > "$output_dir/merged_files.txt"
+cat "$output_dir/katana_filtered.txt" "$output_dir/go_extracted_files.txt" "$output_dir/combined_bruteforce.txt" "$output_dir/filtered_links.txt" "$output_dir/params.txt" | sort -u > "$output_dir/merged_files.txt"
+
