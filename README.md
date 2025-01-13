@@ -8,92 +8,83 @@ An advanced bug bounty automation framework designed for efficient security asse
 - Parallel execution for improved performance
 - Live subdomain validation and web crawling
 - Advanced web application fingerprinting
-- Vulnerability scanning and automated exploitation
-- Integrated reporting system with PDF generation
-- Robust error handling and logging
-- Port scanning and technology detection
 - API endpoint discovery and analysis
+- Directory and file bruteforcing
+- GF pattern matching for vulnerability identification
+- DNS resolution and IP mapping
+- Robust error handling and logging
 
 ## 🛠️ Prerequisites
 
+### Core Tools
 - Amass
 - Subfinder
 - Findomain
 - Assetfinder
 - Sublist3r
-- Crobat
 - HTTPx
-- Nmap
-- WhatWeb
 - FFuf
 - Waybackurls
 - GAU
-- ParamSpider
-- Nuclei
-- Nikto
-- SQLMap
-- XSStrike
-- Commix
-- GoSpider
-- SubJS
-- CRTsh
-- Naabu
+- Gobuster
+- ShuffleDNS
+- Massdns
 - Katana
 - Chaos
-- ShuffleDNS
-- Masscan
-- Pandoc
-- LinkFinder
-- Dalfox
-- Arjun
+- DNSx
+- GF
+
+### Environment Requirements
+- AMASS_CONFIG - Configuration file for Amass
+- CHAOS_API_KEY - API key for Chaos
+- RESOLVERS - DNS resolvers list
+- WORDLISTS - Wordlist for bruteforcing
 
 ## 📥 Installation
-`git clone https://github.com/yourusername/SubHunterX` <br>
-`cd SubHunterX` <br>
 
-## 🚀 Usage  
-Basic usage:  
-`./subhunterx.sh <domain>`<br>  
-Advanced usage:  
-`./subhunterx.sh <domain> <wordlist> <resolvers> <nuclei-templates> <config>`  
-
-
+```bash
+git clone https://github.com/yourusername/SubHunterX
+cd SubHunterX 
+```
+## 🚀 Usage
+### Basic usage:
+```Bash
+./subhunterx.sh <domain>
+```
 ## 🔍 Features Breakdown
-
-### Subdomain Enumeration
-- Passive and active enumeration
-- Multiple tools running in parallel
-- CRT.sh integration
-
-### Web Crawling
-- GoSpider implementation
-- JavaScript analysis
-- Endpoint discovery
-
-### Security Scanning
-- Vulnerability assessment
-- Port scanning
-- Technology fingerprinting
-- Parameter discovery
-
-### Reporting
-- Markdown report generation
-- PDF conversion
-- Detailed output organization
-
+- Subdomain Enumeration
+- Active enumeration using Amass
+- Passive enumeration using Subfinder, Findomain, Assetfinder, Sublist3r
+- DNS bruteforcing with Gobuster
+- Additional enumeration through Chaos
+- DNS Resolution & Validation
+- Subdomain resolution using ShuffleDNS and Massdns
+- Live subdomain validation with HTTPx
+- IP address mapping with DNSx
+- Web Crawling & Discovery
+- Comprehensive crawling with Katana
+- API endpoint discovery
+- Directory bruteforcing with FFuf
+- Pattern matching using GF for:
+  - XSS vulnerabilities
+  - SQL injection
+  - Local File Inclusion
+  -  Remote Code Execution
+  - SSRF
+  - Open Redirects
+### Output Organization
+- Structured output directory: `/root/Desktop/<domain>/`
+- Separate files for each tool's results
+- Merged and deduplicated findings
+- Filtered outputs for specific vulnerability types
 ## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit pull requests.
+- Contributions are welcome! Please feel free to submit pull requests.
 
 ## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+- This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## ⚠️ Disclaimer
-
-This tool is for educational and authorized testing purposes only. Always obtain proper authorization before testing any systems.
+- This tool is for educational and authorized testing purposes only. Always obtain proper authorization before testing any systems.
 
 ## 🌟 Acknowledgments
-
-Thanks to all the amazing open-source tools that make this framework possible.
-
+- Thanks to all the amazing open-source tools that make this framework possible.
