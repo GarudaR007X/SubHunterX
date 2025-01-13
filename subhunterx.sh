@@ -5,169 +5,118 @@ set -euo pipefail
 
 # Check if domain argument is provided
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <domain> [wordlist] [resolvers] [nuclei-templates] [config]"
+    echo "Usage: $0 <domain>"
     exit 1
 fi
 
 # Variables with proper quoting and SubHunterX format
 domain="$1"
-wordlist="${2:-"~/subhunterx/assets/fuzz.txt"}"
-reso="${3:-"~/subhunterx/assets/dnsresolvers.txt"}"
-nuclei_templates="${4:-"~/nuclei-templates"}"
-config_file="${5:-"~/subhunterx/config/config.ini"}"
-output_dir="$HOME/Desktop/${domain}"
-chaos_api=""
+output_dir="/root/Desktop/${domain}"
 
 # Colors with proper quoting
 REDCOLOR='\e[31m'
 GREENCOLOR='\e[32m'
 YELLOWCOLOR='\e[33m'
 BLUECOLOR='\e[34m'
-RESETCOLOR='\e[0m'  # Added reset color
-
-# Start time for execution tracking
-start_time=$(date +%s)
+RESETCOLOR='\e[0m'  
 
 # Tool check with proper array handling
-tools=(amass subfinder findomain assetfinder sublist3r unfurl httpx nmap whatweb ffuf waybackurls gau paramspider nuclei nikto sqlmap xsstrike commix gospider subjs crtsh naabu katana chaos shuffledns masscan pandoc linkfinder dalfox arjun github-subdomains)
+tools=(amass subfinder findomain assetfinder sublist3r httpx ffuf waybackurls gau gobuster shuffledns massdns katana chaos dnsx gf)
 for tool in "${tools[@]}"; do
     if ! command -v "$tool" &>/dev/null; then
-        echo "$tool is not installed. Please install it and try again."
+        echo " ${REDCOLOR} $tool is not installed. Please install it and try again.${RESETCOLOR}"
         exit 1
     fi
 done
 
 # Create output directory with error handling
-mkdir -p "$output_dir" || { echo "Failed to create output directory"; exit 1; }
-
-# Subdomain Enumeration (Parallel Execution)
-echo -e "${REDCOLOR}[+] Enumerating subdomains...${RESETCOLOR}"
-
-amass enum  -silent -config "$config_file" -d "$domain" -o "$output_dir/amass.txt" & 
-subfinder  -d "$domain" -o "$output_dir/subfinder.txt" & 
-findomain -t "$domain" --quiet | tee -a "$output_dir/findomain.txt" & 
-assetfinder -subs-only "$domain" | tee -a "$output_dir/assetfinder.txt" & 
-sublist3r -d "$domain" -o "$output_dir/sublist3r.txt" &  
-chaos -key "$chaos_api" -d "$domain" -o "$output_dir/chaos.txt" & 
-crtsh -d "$domain" | tee -a "$output_dir/crtsh.txt"
-github-subdomains -d "$domain" -t "$GITHUB_TOKEN" -o "$output_dir/github_subdomains.txt"
-wait
+mkdir -p "$output_dir" || { echo " ${REDCOLOR} Failed to create output directory"; exit 1; }
+tld=$(echo "$domain" | sed 's/^.*\(\.[a-zA-Z0-9]*\.[a-zA-Z]\{2,3\}\)$/\1/')
 
 
- 
-    
+echo -e "${REDCOLOR}[+] Enumeration of Subdomains with Multiple Tools...${RESETCOLOR}"
 
-# Combine and sort subdomains with error handling
-if ! cat "$output_dir"/*.txt | sort -u > "$output_dir/all_subdomains.txt"; then
-    echo "Failed to combine subdomain files"
-    exit 1
-fi
+# Amass - Active Mode
+echo -e "${BLUECOLOR}[+] Running Amass...${GREENCOLOR}"
+amass enum -active -d "$domain" -config "$AMASS_CONFIG" -o "$output_dir/amass.txt" 
 
-# Live Subdomain Detection
-echo -e "${GREENCOLOR}[+] Detecting live subdomains...${RESETCOLOR}"
-httpx -l "$output_dir/all_subdomains.txt" -silent -threads 300 -o "$output_dir/live_subdomains.txt"
 
-# GoSpider Web Crawling
-echo -e "${BLUECOLOR}[+] Crawling live subdomains with GoSpider...${RESETCOLOR}"
-gospider -S "$output_dir/live_subdomains.txt" -o "$output_dir/gospider_output" -t 10
+# Subfinder
+echo -e "${BLUECOLOR}[+] Running Subfinder...${GREENCOLOR}"
+subfinder -d "$domain" -o "$output_dir/subfinder.txt" 
 
-# Enhanced Subdomain Enumeration with ShuffleDNS
-echo -e "${YELLOWCOLOR}[+] Running ShuffleDNS for subdomain enumeration...${RESETCOLOR}"
-shuffledns -d "$domain" -list "$output_dir/all_subdomains.txt" -r "$reso" -o "$output_dir/shuffledns.txt"
+# Findomain
+echo -e "${BLUECOLOR}[+] Running Findomain...${GREENCOLOR}"
+findomain -t "$domain" --quiet >> "$output_dir/findomain.txt"
 
-# Directory and File Bruteforcing
-echo -e "${REDCOLOR}[+] Running directory and file enumeration tools...${RESETCOLOR}"
-ffuf -w "$wordlist" -u "https://FUZZ.$domain" -o "$output_dir/ffuf.txt" &
-gobuster dir -u "https://$domain" -w "$wordlist" -o "$output_dir/gobuster.txt" &
-if ! python3 dirsearch.py -u "https://$domain" -w "$wordlist" -o "$output_dir/dirsearch.txt"; then
-    echo "Warning: Dirsearch failed"
-fi
-wait
+# Assetfinder
+echo -e "${BLUECOLOR}[+] Running Assetfinder...${GREENCOLOR}"
+assetfinder -subs-only "$domain" | tee -a "$output_dir/assetfinder.txt" 
 
-# Port Scanning (Parallel Execution)
-echo -e "${REDCOLOR}[+] Running port scans...${RESETCOLOR}"
-masscan -iL "$output_dir/live_subdomains.txt" -p1-65535 --rate 1000 -oG "$output_dir/masscan.txt" &
-nmap -iL "$output_dir/live_subdomains.txt" -sV -sC -oA "$output_dir/nmap_scan" &
-wait
+# Sublist3r
+echo -e "${BLUECOLOR}[+] Running Sublist3r...${GREENCOLOR}"
+python3 -W ignore /usr/local/bin/sublist3r -d "$domain" -e baidu,yahoo,google,bing,ask,netcraft,dnsdumpster,threatcrowd,ssl,passivedns -o "$output_dir/sublist3r.txt" 
 
-# Shodan API Integration with error handling
-echo -e "${REDCOLOR}[+] Querying Shodan...${RESETCOLOR}"
-while IFS= read -r subdomain; do
-    ip=$(dig +short "$subdomain") || continue
-    if [[ -n "$ip" ]]; then
-        echo -e "${YELLOWCOLOR}[+] Querying Shodan for IP: $ip...${RESETCOLOR}"
-        if ! shodan host "$ip" > "$output_dir/shodan_${ip}.txt"; then
-            echo "Warning: Shodan query failed for $ip"
-        fi
-    fi
-done < "$output_dir/live_subdomains.txt"
+# Chaos
+echo -e "${BLUECOLOR}[+] Running Chaos...${GREENCOLOR}"
+chaos -key "$CHAOS_API_KEY" -d "$domain" -o "$output_dir/chaos.txt" 
 
-# Web Application Fingerprinting
-echo -e "${YELLOWCOLOR}[+] Fingerprinting web technologies...${RESETCOLOR}"
-whatweb -i "$output_dir/live_subdomains.txt" --no-errors --log-verbose="$output_dir/whatweb.txt"
+# Gobuster - Subdomain Brute-forcing
+echo -e "${BLUECOLOR}[+] Running Gobuster...${GREENCOLOR}"
+gobuster dns -d "$domain" -w "$WORDLISTS" -o "$output_dir/gobuster.txt" -t 200 --timeout 2s -r 8.8.8.8
 
-# Endpoint Discovery
-echo -e "${GREENCOLOR}[+] Discovering endpoints...${RESETCOLOR}"
-while IFS= read -r domain; 
-    waybackurls "$domain" >> "$output_dir/waybackurls.txt"
-    gau "$domain" >> "$output_dir/gau.txt"
-done < "$output_dir/live_subdomains.txt"
-katana -t "$domain" -o "$output_dir/katana.txt"
+# Combine and sort subdomains, excluding one file
+echo -e "${REDCOLOR}[+] Merging and sorting subdomain files...${RESETCOLOR}"
+grep -oP '\b[A-Za-z0-9.-]+"$tld"\b' "$output_dir/amass.txt" > "$output_dir/amasssubdomains.txt" 
 
-# JavaScript Analysis
-echo -e "${BLUECOLOR}[+] Analyzing JavaScript...${RESETCOLOR}"
-if ! cat "$output_dir/live_subdomains.txt" | subjs | tee "$output_dir/subjs.txt"; then
-    echo "Warning: SubJS analysis failed"
-fi
-linkfinder -i "$output_dir/subjs.txt" -o "$output_dir/linkfinder.txt"
+grep -oP '\b[a-z0-9.-]+\b' "$output_dir/gobuster.txt" | sort -u > "$output_dir/cleaned_gobuster_subdomains.txt"
 
-# Parameter Discovery using Arjun
-echo -e "${BLUECOLOR}[+] Discovering parameters...${RESETCOLOR}"
-arjun -i "$domain" -o "$output_dir/arjun_parameters.json"
+find "$output_dir" -type f -name "*.txt" ! -name "amass.txt" ! -name "gobuster.txt" -exec cat {} + | sort -u > "$output_dir/all_subdomains.txt"
 
-# API Endpoint Identification (Without testing APIs)
-echo -e "${YELLOWCOLOR}[+] Identifying API endpoints...${RESETCOLOR}"
-{
-    grep -i "api" "$output_dir/waybackurls.txt" "$output_dir/gau.txt" "$output_dir/katana.txt" || true
-} | sort -u > "$output_dir/api_endpoints.txt"
+# Resolve Subdomains with massdns
+echo -e "${YELLOWCOLOR}[+] Resolving subdomains with Shuffledns...${RESETCOLOR}"
+shuffledns -list "$output_dir/all_subdomains.txt" -r "$RESOLVERS" -o "$output_dir/resolved_subdomains.txt"
+massdns -t A -r "$RESOLVERS" -o "$output_dir/mass_resolved_subdomains.txt" "$output_dir/all_subdomains.txt"
+grep -Eo '^[^ ]+' "$output_dir/mass_resolved_subdomains.txt" | sed 's/\.$//' > "$output_dir/resolved_subdomains.txt"
 
-# Vulnerability Scanning with error handling
-echo -e "${YELLOWCOLOR}[+] Running vulnerability scans...${RESETCOLOR}"
-nuclei -l "$output_dir/live_subdomains.txt" -t "$nuclei_templates/cves/" -o "$output_dir/cves.txt"
-nuclei -l "$output_dir/live_subdomains.txt" -t "$nuclei_templates/vulnerabilities/" -o "$output_dir/vulnerabilities.txt"
-nikto -h "$output_dir/live_subdomains.txt" -output "$output_dir/nikto.txt"
-sqlmap -m "$output_dir/live_subdomains.txt" --batch --output-dir="$output_dir/sqlmap"
-xsstrike -u "$output_dir/live_subdomains.txt" --output "$output_dir/xsstrike.txt"
+# Checking live subdomains with httpx
+echo -e "${REDCOLOR}[+] Checking for live subdomains...${RESETCOLOR}"
+httpx -l "$output_dir/resolved_subdomains.txt" -o "$output_dir/live_subdomains.txt" -silent -threads 300 -mc 200,301,302,403,404,500,502,503
 
-# Automated Exploitation
-echo -e "${REDCOLOR}[+] Running automated exploitation...${RESETCOLOR}"
-commix -m "$output_dir/live_subdomains.txt" --output-dir="$output_dir/commix"
+# Finding APIs from all subdomains 
+echo -e "$REDCOLOR [+] Finding APIs...${RESETCOLOR}"
+cat "$output_dir/live_subdomains.txt" | grep api | tee "$output_dir/api.txt"
+uniq "$output_dir/api.txt" > "$output_dir/finalapi.txt"
 
-# Report Generation with error handling
-echo -e "${GREENCOLOR}[+] Generating report...${RESETCOLOR}"
-{
-    echo "# Bug Bounty Report for $domain"
-    echo "## Live Subdomains"
-    cat "$output_dir/live_subdomains.txt"
-    echo "## API Endpoints"
-    cat "$output_dir/api_endpoints.txt"
-    echo "## Non-API Endpoints"
-    cat "$output_dir/non_api_endpoints.txt"
-    echo "## Shodan Results"
-    cat "$output_dir"/shodan_*.txt || true
-    echo "## Vulnerabilities"
-    cat "$output_dir/cves.txt" "$output_dir/vulnerabilities.txt" || true
-    echo "## Exploitation Results"
-    cat "$output_dir/commix/results.txt" || true
-} > "$output_dir/report.md"
+# Discover endpoints with Katana
+echo -e "${REDCOLOR}[+] Crawling with Katana...${RESETCOLOR}"
+katana -list "$output_dir/live_subdomains.txt" -o "$output_dir/katana_output.txt" -d 3 
+grep -E "\.js|\.json|\.php|\.xml|\.txt|\.env|api" "$output_dir/katana_output.txt" > "$output_dir/katana_filtered.txt"
 
-# Convert report to PDF
-echo -e "${BLUECOLOR}[+] Converting report to PDF...${RESETCOLOR}"
-if ! pandoc "$output_dir/report.md" -o "$output_dir/report.pdf"; then
-    echo "Warning: PDF conversion failed"
-fi
+#  Directory and File Bruteforcing
+echo -e "${REDCOLOR}[+] Running Directory Brute-forcing...${RESETCOLOR}"
 
-# End time and duration calculation
-end_time=$(date +%s)
-duration=$((end_time - start_time))
-echo -e "${GREENCOLOR}[+] Script completed in ${duration} seconds.${RESETCOLOR}"
+# FFUF Command (for directory bruteforce)
+ffuf -u "https://FUZZ.$domain" -w "$FUZZ" -mc 200,301,403 -t 50 -o "$output_dir/ffuf_output.txt"
+jq -r '.results[] | .url' "$output_dir/ffuf_output.txt" > "$output_dir/ffuf_filtered_urls.txt"
+cat "$output_dir/ffuf_filtered_urls.txt"  | sort -u > "$output_dir/bruteforce.txt"
+
+echo -e "${REDCOLOR}[+] Crawling with Katana...${RESETCOLOR}"
+katana -list "$output_dir/bruteforce.txt" -o "$output_dir/ffuf_katana_output.txt" -d 3 
+
+cat "$output_dir/katana_filtered.txt" "$output_dir/bruteforce.txt"  "$output_dir/ffuf_katana_output.txt"  | sort -u > "$output_dir/merged_files.txt"
+
+sed 's|https://||g; s|http://||g' "$output_dir/live_subdomains.txt" > "$output_dir/live_subdomains2.txt"
+cat "$output_dir/live_subdomains2.txt" | dnsx -resp-only | sort -u | tee "$output_dir/ips.txt"
+
+# Gf Pattrens
+echo -e "${REDCOLOR}[+] Finding links using GF patterns...${RESETCOLOR}"
+
+cat "$output_dir/merged_files.txt" | gf xss > "$output_dir/gf_xss_results.txt"
+cat "$output_dir/merged_files.txt" | gf sqli > "$output_dir/gf_sqli_results.txt"
+cat "$output_dir/merged_files.txt" | gf lfi > "$output_dir/gf_lfi_results.txt"
+cat "$output_dir/merged_files.txt" | gf rce > "$output_dir/gf_rce_results.txt"
+cat "$output_dir/merged_files.txt" | gf ssrf > "$output_dir/gf_ssrf_results.txt"
+cat "$output_dir/merged_files.txt" | gf redirect > "$output_dir/gf_redirect_results.txt"
+
+echo -e "${GREENCOLOR}[+] Subdomain Enmeration is Done....!"
