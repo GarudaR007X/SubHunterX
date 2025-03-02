@@ -43,7 +43,7 @@ An advanced bug bounty automation framework designed for efficient security asse
 ## 📥 Installation
 
 ```bash
-git clone https://github.com/yourusername/SubHunterX
+https://github.com/0xayushc/SubHunterX
 cd SubHunterX 
 ```
 ## 🚀 Usage
