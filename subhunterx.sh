@@ -3,120 +3,129 @@
 # Set strict error handling
 set -euo pipefail
 
-# Check if domain argument is provided
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <domain>"
-    exit 1
-fi
-
-# Variables with proper quoting and SubHunterX format
-domain="$1"
-output_dir="/root/Desktop/${domain}"
-
-# Colors with proper quoting
+# Colors (defined before usage to avoid unbound variable errors)
 REDCOLOR='\e[31m'
 GREENCOLOR='\e[32m'
 YELLOWCOLOR='\e[33m'
 BLUECOLOR='\e[34m'
-RESETCOLOR='\e[0m'  
+RESETCOLOR='\e[0m'
 
-# Tool check with proper array handling
-tools=(amass subfinder findomain assetfinder sublist3r httpx ffuf waybackurls gau gobuster shuffledns massdns katana chaos dnsx gf)
+# Error handler
+trap 'echo -e "${REDCOLOR}An error occurred. Exiting...${RESETCOLOR}"; exit 1' ERR
+
+# Check if domain argument is provided
+if [ $# -lt 1 ]; then
+    echo -e "${REDCOLOR}Usage: \$0 <domain>${RESETCOLOR}"
+    exit 1
+fi
+
+# Input and directories
+domain="$1"
+output_dir="/root/Desktop/${domain}"
+mkdir -p "$output_dir" || { echo -e "${REDCOLOR}Failed to create output directory${RESETCOLOR}"; exit 1; }
+
+# Extract TLD (fixed sed command)
+tld=$(echo "$domain" | sed -E 's/.*\.([a-zA-Z]{2,3}(\.[a-zA-Z]{2,3})?)$/\1/')
+
+# Check if required tools are installed
+tools=(amass subfinder findomain assetfinder sublist3r httpx ffuf waybackurls gau gobuster shuffledns massdns katana chaos dnsx gf jq)
 for tool in "${tools[@]}"; do
     if ! command -v "$tool" &>/dev/null; then
-        echo " ${REDCOLOR} $tool is not installed. Please install it and try again.${RESETCOLOR}"
+        echo -e "${REDCOLOR}$tool is not installed. Please install it and try again.${RESETCOLOR}"
         exit 1
     fi
 done
 
-# Create output directory with error handling
-mkdir -p "$output_dir" || { echo " ${REDCOLOR} Failed to create output directory"; exit 1; }
-tld=$(echo "$domain" | sed 's/^.*\(\.[a-zA-Z0-9]*\.[a-zA-Z]\{2,3\}\)$/\1/')
+start_time=$(date)
+echo -e "${YELLOWCOLOR}[+] Recon started at $start_time${RESETCOLOR}"
+
+### Subdomain Enumeration ###
+echo -e "${REDCOLOR}[+] Enumerating Subdomains...${RESETCOLOR}"
+
+echo -e "${BLUECOLOR}[+] Running Amass...${GREENCOLOR}${RESETCOLOR}"
+NO_COLOR=1 amass enum -active -d "$domain" -config "$AMASS_CONFIG" -rf "$RESOLVERS" -o "$output_dir/amass.txt"
+
+echo -e "${BLUECOLOR}[+] Running Subfinder...${GREENCOLOR}${RESETCOLOR}"
+subfinder -d "$domain" -o "$output_dir/subfinder.txt"
+
+echo -e "${BLUECOLOR}[+] Running Findomain...${GREENCOLOR}${RESETCOLOR}"
+findomain -t "$domain" --quiet > "$output_dir/findomain.txt"
+
+echo -e "${BLUECOLOR}[+] Running Assetfinder...${GREENCOLOR}${RESETCOLOR}"
+assetfinder -subs-only "$domain" > "$output_dir/assetfinder.txt"
+
+echo -e "${BLUECOLOR}[+] Running Sublist3r...${GREENCOLOR}${RESETCOLOR}"
+python3 -W ignore /usr/local/bin/sublist3r -d "$domain" -e baidu,yahoo,google,bing,ask,netcraft,threatcrowd,ssl,passivedns -o "$output_dir/sublist3r.txt"
+
+echo -e "${BLUECOLOR}[+] Running Chaos...${GREENCOLOR}${RESETCOLOR}"
+chaos -key "$CHAOS_API_KEY" -d "$domain" -o "$output_dir/chaos.txt"
+
+echo -e "${BLUECOLOR}[+] Running Gobuster...${GREENCOLOR}${RESETCOLOR}"
+gobuster dns -d "$domain" -w "$WORDLISTS" -o "$output_dir/gobuster.txt" -t 300 --timeout 2s -r 8.8.8.8 --no-color
 
 
-echo -e "${REDCOLOR}[+] Enumeration of Subdomains with Multiple Tools...${RESETCOLOR}"
+### Combine Subdomains ###
+echo -e "${REDCOLOR}[+] Merging and cleaning subdomains...${RESETCOLOR}"
 
-# Amass - Active Mode
-echo -e "${BLUECOLOR}[+] Running Amass...${GREENCOLOR}"
-amass enum -active -d "$domain" -config "$AMASS_CONFIG" -o "$output_dir/amass.txt" 
+grep -Eo "([a-zA-Z0-9_-]+\.)+${domain//./\\.}" "$output_dir/amass.txt" \
+    | sed -E "s/\x1B\[[0-9;]*[mK]//g" | tr '[:upper:]' '[:lower:]' | sed 's/\.$//' > "$output_dir/amass_cleaned.txt"
+
+grep -Eo '\b[a-z0-9.-]+\b' "$output_dir/gobuster.txt" | tr '[:upper:]' '[:lower:]' | sed 's/\.$//' | sort -u > "$output_dir/gobuster_cleaned.txt"
+
+sort -u "$output_dir/amass_cleaned.txt" "$output_dir/gobuster_cleaned.txt" "$output_dir/assetfinder.txt" "$output_dir/chaos.txt" "$output_dir/findomain.txt" "$output_dir/subfinder.txt" "$output_dir/sublist3r.txt" | tr '[:upper:]' '[:lower:]' | sed 's/\.$//' > "$output_dir/all_subdomains.txt"
 
 
-# Subfinder
-echo -e "${BLUECOLOR}[+] Running Subfinder...${GREENCOLOR}"
-subfinder -d "$domain" -o "$output_dir/subfinder.txt" 
+### Resolve Subdomains ###
+echo -e "${YELLOWCOLOR}[+] Resolving subdomains...${RESETCOLOR}"
+echo -e "${BLUECOLOR}[+] Running Shuffledns...${GREENCOLOR}${RESETCOLOR}"
+shuffledns -d "$domain" -list "$output_dir/all_subdomains.txt" -r "$RESOLVERS" -o "$output_dir/resolved_shuffledns.txt" -silent -nc -mode resolve
+echo -e "${BLUECOLOR}[+] Running Massdns...${GREENCOLOR}${RESETCOLOR}"
+massdns -t A -r "$RESOLVERS" -o S -w "$output_dir/massdns_output.txt" "$output_dir/all_subdomains.txt"
+grep -Eo '^[^ ]+' "$output_dir/massdns_output.txt" | sed 's/\.$//' >> "$output_dir/resolved_massdns.txt"
 
-# Findomain
-echo -e "${BLUECOLOR}[+] Running Findomain...${GREENCOLOR}"
-findomain -t "$domain" --quiet >> "$output_dir/findomain.txt"
+sort -u "$output_dir/resolved_shuffledns.txt" "$output_dir/resolved_massdns.txt" > "$output_dir/resolved_subdomains.txt"
 
-# Assetfinder
-echo -e "${BLUECOLOR}[+] Running Assetfinder...${GREENCOLOR}"
-assetfinder -subs-only "$domain" | tee -a "$output_dir/assetfinder.txt" 
+### Live Subdomain Check ###
+echo -e "${REDCOLOR}[+] Checking for live subdomains with httpx...${RESETCOLOR}"
 
-# Sublist3r
-echo -e "${BLUECOLOR}[+] Running Sublist3r...${GREENCOLOR}"
-python3 -W ignore /usr/local/bin/sublist3r -d "$domain" -e baidu,yahoo,google,bing,ask,netcraft,dnsdumpster,threatcrowd,ssl,passivedns -o "$output_dir/sublist3r.txt" 
-
-# Chaos
-echo -e "${BLUECOLOR}[+] Running Chaos...${GREENCOLOR}"
-chaos -key "$CHAOS_API_KEY" -d "$domain" -o "$output_dir/chaos.txt" 
-
-# Gobuster - Subdomain Brute-forcing
-echo -e "${BLUECOLOR}[+] Running Gobuster...${GREENCOLOR}"
-gobuster dns -d "$domain" -w "$WORDLISTS" -o "$output_dir/gobuster.txt" -t 200 --timeout 2s -r 8.8.8.8
-
-# Combine and sort subdomains, excluding one file
-echo -e "${REDCOLOR}[+] Merging and sorting subdomain files...${RESETCOLOR}"
-grep -oP '\b[A-Za-z0-9.-]+"$tld"\b' "$output_dir/amass.txt" > "$output_dir/amasssubdomains.txt" 
-
-grep -oP '\b[a-z0-9.-]+\b' "$output_dir/gobuster.txt" | sort -u > "$output_dir/cleaned_gobuster_subdomains.txt"
-
-find "$output_dir" -type f -name "*.txt" ! -name "amass.txt" ! -name "gobuster.txt" -exec cat {} + | sort -u > "$output_dir/all_subdomains.txt"
-
-# Resolve Subdomains with massdns
-echo -e "${YELLOWCOLOR}[+] Resolving subdomains with Shuffledns...${RESETCOLOR}"
-shuffledns -list "$output_dir/all_subdomains.txt" -r "$RESOLVERS" -o "$output_dir/resolved_subdomains.txt"
-massdns -t A -r "$RESOLVERS" -o "$output_dir/mass_resolved_subdomains.txt" "$output_dir/all_subdomains.txt"
-grep -Eo '^[^ ]+' "$output_dir/mass_resolved_subdomains.txt" | sed 's/\.$//' > "$output_dir/resolved_subdomains.txt"
-
-# Checking live subdomains with httpx
-echo -e "${REDCOLOR}[+] Checking for live subdomains...${RESETCOLOR}"
 httpx -l "$output_dir/resolved_subdomains.txt" -o "$output_dir/live_subdomains.txt" -silent -threads 300 -mc 200,301,302,403,404,500,502,503
 
-# Finding APIs from all subdomains 
-echo -e "$REDCOLOR [+] Finding APIs...${RESETCOLOR}"
-cat "$output_dir/live_subdomains.txt" | grep api | tee "$output_dir/api.txt"
-uniq "$output_dir/api.txt" > "$output_dir/finalapi.txt"
+### API Filtering ###
+echo -e "${REDCOLOR}[+] Searching for API subdomains...${RESETCOLOR}"
 
-# Discover endpoints with Katana
-echo -e "${REDCOLOR}[+] Crawling with Katana...${RESETCOLOR}"
-katana -list "$output_dir/live_subdomains.txt" -o "$output_dir/katana_output.txt" -d 3 
+grep -i "api" "$output_dir/live_subdomains.txt" | sort -u > "$output_dir/api.txt"
+
+### Crawl Endpoints with Katana ###
+echo -e "${REDCOLOR}[+] Crawling live subdomains with Katana...${RESETCOLOR}"
+
+katana -list "$output_dir/live_subdomains.txt" -o "$output_dir/katana_output.txt" -d 3
 grep -E "\.js|\.json|\.php|\.xml|\.txt|\.env|api" "$output_dir/katana_output.txt" > "$output_dir/katana_filtered.txt"
 
-#  Directory and File Bruteforcing
-echo -e "${REDCOLOR}[+] Running Directory Brute-forcing...${RESETCOLOR}"
+### FFUF - Directory Brute-force ###
+echo -e "${REDCOLOR}[+] Running FFUF for directory brute-force...${RESETCOLOR}"
 
-# FFUF Command (for directory bruteforce)
-ffuf -u "https://FUZZ.$domain" -w "$FUZZ" -mc 200,301,403 -t 50 -o "$output_dir/ffuf_output.txt"
-jq -r '.results[] | .url' "$output_dir/ffuf_output.txt" > "$output_dir/ffuf_filtered_urls.txt"
-cat "$output_dir/ffuf_filtered_urls.txt"  | sort -u > "$output_dir/bruteforce.txt"
+ffuf -u "https://$domain/FUZZ" -w "$FUZZ" -mc 200,301,403 -t 50 -o "$output_dir/ffuf_output.json"
+jq -r '.results[] | .url' "$output_dir/ffuf_output.json" | sort -u > "$output_dir/ffuf_filtered.txt"
 
-echo -e "${REDCOLOR}[+] Crawling with Katana...${RESETCOLOR}"
-katana -list "$output_dir/bruteforce.txt" -o "$output_dir/ffuf_katana_output.txt" -d 3 
+### Crawl FFUF URLs with Katana ###
+katana -list "$output_dir/ffuf_filtered.txt" -o "$output_dir/ffuf_katana_output.txt" -d 3
 
-cat "$output_dir/katana_filtered.txt" "$output_dir/bruteforce.txt"  "$output_dir/ffuf_katana_output.txt"  | sort -u > "$output_dir/merged_files.txt"
+### Merge Files for GF Pattern Matching ###
+cat "$output_dir/katana_filtered.txt" "$output_dir/ffuf_filtered.txt" "$output_dir/ffuf_katana_output.txt" | sort -u > "$output_dir/merged_files.txt"
 
-sed 's|https://||g; s|http://||g' "$output_dir/live_subdomains.txt" > "$output_dir/live_subdomains2.txt"
-cat "$output_dir/live_subdomains2.txt" | dnsx -resp-only | sort -u | tee "$output_dir/ips.txt"
+### DNS Resolution to IPs ###
+sed 's|https://||g; s|http://||g' "$output_dir/live_subdomains.txt" > "$output_dir/live_subdomains_stripped.txt"
+dnsx -l "$output_dir/live_subdomains_stripped.txt" -resp-only | sort -u > "$output_dir/ips.txt"
 
-# Gf Pattrens
-echo -e "${REDCOLOR}[+] Finding links using GF patterns...${RESETCOLOR}"
+### GF Pattern Matching ###
+echo -e "${REDCOLOR}[+] Extracting GF pattern matches...${RESETCOLOR}"
 
-cat "$output_dir/merged_files.txt" | gf xss > "$output_dir/gf_xss_results.txt"
-cat "$output_dir/merged_files.txt" | gf sqli > "$output_dir/gf_sqli_results.txt"
-cat "$output_dir/merged_files.txt" | gf lfi > "$output_dir/gf_lfi_results.txt"
-cat "$output_dir/merged_files.txt" | gf rce > "$output_dir/gf_rce_results.txt"
-cat "$output_dir/merged_files.txt" | gf ssrf > "$output_dir/gf_ssrf_results.txt"
-cat "$output_dir/merged_files.txt" | gf redirect > "$output_dir/gf_redirect_results.txt"
+patterns=(xss sqli lfi rce ssrf redirect debug interestingparams interestingsubs upload ssti s3 bucket idor cors)
+for pattern in "${patterns[@]}"; do
+    cat "$output_dir/merged_files.txt" | gf "$pattern" > "$output_dir/gf_${pattern}_results.txt"
+done
 
-echo -e "${GREENCOLOR}[+] Subdomain Enmeration is Done....!"
+end_time=$(date)
+echo -e "${GREENCOLOR}[+] Subdomain Enumeration Completed!${RESETCOLOR}"
+echo -e "${BLUECOLOR}Started at: $start_time${RESETCOLOR}"
+echo -e "${BLUECOLOR}Finished at: $end_time${RESETCOLOR}"
