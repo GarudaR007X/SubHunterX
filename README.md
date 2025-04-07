@@ -5,8 +5,8 @@
   <p>The ultimate reconnaissance and vulnerability detection arsenal for security professionals</p>
   
   [![Made with Bash](https://img.shields.io/badge/Made%20with-Bash-1f425f.svg)](https://www.gnu.org/software/bash/)
-  [![Offensive Tool](https://img.shields.io/badge/Security-Offensive%20Tool-red.svg)](https://github.com/GarudaR007X/SubHunterX)
-  [![Recon](https://img.shields.io/badge/Category-Reconnaissance-orange.svg)](https://github.com/GarudaR007X/SubHunterX)
+  [![Offensive Tool](https://img.shields.io/badge/Security-Offensive%20Tool-red.svg)](https://github.com/who0xac/SubHunterX)
+  [![Recon](https://img.shields.io/badge/Category-Reconnaissance-orange.svg)](https://github.com/who0xac/SubHunterX)
 </div>
 
 ## 🚀 Overview
@@ -48,7 +48,7 @@ WORDLISTS=/path/to/wordlists
 ## 📥 Deployment
 
 ```bash
-git clone https://github.com/GarudaR007X/SubHunterX
+git clone https://github.com/who0xac/SubHunterX
 cd SubHunterX
 chmod +x subhunterx.sh
 ```
@@ -105,4 +105,4 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## 🙏 Acknowledgments
 
-- Tool created and maintained by GarudaR007X
+- Tool created and maintained by who0xac
